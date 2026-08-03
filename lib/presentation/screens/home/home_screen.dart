@@ -8,6 +8,10 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../providers/search_provider.dart';
 
+/// Shortest query that gets the "Search for ..." fallback row. Below this,
+/// a zero-match keystroke would flash an empty card on every character.
+const _minCharsForSearchFallback = 3;
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -17,16 +21,21 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  final _suggestionsController = SuggestionsController<String>();
   List<String> _recentSearches = [];
 
   @override
   void initState() {
     super.initState();
     _loadRecentSearches();
+    // Parse the word list now so the first keystroke doesn't wait on it.
+    ref.read(wordListAssetProvider).load();
   }
 
   Future<void> _loadRecentSearches() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _recentSearches = prefs.getStringList('recent_searches') ?? [];
     });
@@ -38,19 +47,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .take(AppConstants.recentSearchLimit)
         .toList();
     await prefs.setStringList('recent_searches', updated);
+    if (!mounted) return;
     setState(() => _recentSearches = updated);
   }
 
-  void _navigateToWord(String word) {
+  /// The single entry point for opening a word — used by suggestions, recent
+  /// searches, the keyboard's Search key and the "Search for ..." row. The
+  /// query is normalized here and nowhere else, so recent searches and the
+  /// word cache never end up with both `Apple` and `apple`.
+  void _go(String raw) {
+    final word = raw.trim().toLowerCase();
+    if (word.isEmpty) return;
+
+    // Tear the overlay and keyboard down before pushing, otherwise both
+    // animate away on top of the incoming route on iOS.
+    _suggestionsController.close();
+    _focusNode.unfocus();
     _controller.clear();
-    ref.read(searchProvider.notifier).clearSuggestions();
+
     _saveRecentSearch(word);
-    context.push('/word/$word');
+    context.push('/word/${Uri.encodeComponent(word)}');
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
+    _suggestionsController.dispose();
     super.dispose();
   }
 
@@ -72,25 +95,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             TypeAheadField<String>(
               controller: _controller,
+              focusNode: _focusNode,
+              suggestionsController: _suggestionsController,
+              debounceDuration: const Duration(milliseconds: 120),
+              constraints: const BoxConstraints(maxHeight: 280),
               builder: (context, controller, focusNode) => TextField(
                 controller: controller,
                 focusNode: focusNode,
+                textInputAction: TextInputAction.search,
+                onSubmitted: _go,
+                autocorrect: false,
+                enableSuggestions: false,
+                textCapitalization: TextCapitalization.none,
                 decoration: const InputDecoration(
                   hintText: 'Type a word...',
                   prefixIcon: Icon(Icons.search, color: AppTheme.primary),
                 ),
               ),
-              suggestionsCallback: (pattern) async {
-                ref.read(searchProvider.notifier).onQueryChanged(pattern);
-                return ref.read(searchProvider).suggestions;
-              },
+              suggestionsCallback: (pattern) =>
+                  ref.read(getSuggestionsProvider)(pattern),
               itemBuilder: (context, word) => ListTile(
                 leading: const Icon(Icons.book_outlined, color: AppTheme.accent, size: 18),
                 title: Text(word),
                 dense: true,
               ),
-              onSelected: _navigateToWord,
-              emptyBuilder: (context) => const SizedBox.shrink(),
+              onSelected: _go,
+              loadingBuilder: (context) => const SizedBox.shrink(),
+              emptyBuilder: (context) => ValueListenableBuilder(
+                // emptyBuilder gets no pattern, and it only reruns when the
+                // suggestions change — so read the query from the controller.
+                valueListenable: _controller,
+                builder: (context, value, _) {
+                  final query = value.text.trim();
+                  if (query.length < _minCharsForSearchFallback) {
+                    return const SizedBox.shrink();
+                  }
+                  return ListTile(
+                    leading: const Icon(Icons.search, color: AppTheme.primary, size: 18),
+                    title: Text('Search for "$query"'),
+                    dense: true,
+                    onTap: () => _go(query),
+                  );
+                },
+              ),
               decorationBuilder: (context, child) => Material(
                 color: AppTheme.surface,
                 borderRadius: BorderRadius.circular(12),
@@ -113,7 +160,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     return ListTile(
                       leading: const Icon(Icons.history, color: Colors.white38, size: 18),
                       title: Text(word),
-                      onTap: () => _navigateToWord(word),
+                      onTap: () => _go(word),
                     )
                         .animate(delay: Duration(milliseconds: index * 50))
                         .fadeIn()

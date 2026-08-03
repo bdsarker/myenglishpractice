@@ -20,22 +20,69 @@ class WordDetailScreen extends ConsumerWidget {
       appBar: AppBar(title: Text(word)),
       body: asyncEntry.when(
         loading: () => const ShimmerWordDetail(),
-        error: (e, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
-              const SizedBox(height: 12),
-              Text(e.toString(), textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(wordDetailProvider(word)),
-                child: const Text('Retry'),
-              ),
-            ],
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                const SizedBox(height: 12),
+                Text(e.toString(), textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => ref.invalidate(wordDetailProvider(word)),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
           ),
         ),
-        data: (entry) => _WordDetailBody(entry: entry),
+        data: (entry) => entry.found
+            ? _WordDetailBody(entry: entry)
+            : _WordNotFound(word: entry.word),
+      ),
+    );
+  }
+}
+
+/// Shown when the dictionary has no entry for the word — usually a typo, since
+/// the search box now opens whatever the user typed.
+class _WordNotFound extends StatelessWidget {
+  final String word;
+  const _WordNotFound({required this.word});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.search_off_rounded, size: 64, color: Colors.white38),
+            const SizedBox(height: 16),
+            Text(
+              'No definition found for "$word"',
+              style: textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Check the spelling and try again.',
+              style: textTheme.bodyMedium?.copyWith(color: Colors.white38),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Back to search'),
+            ),
+          ],
+        ).animate().fadeIn(duration: 400.ms),
       ),
     );
   }

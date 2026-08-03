@@ -8,6 +8,11 @@ class WordEntryModel {
   final List<String> sentences;
   final bool isFavorite;
 
+  /// False when the dictionary has no entry for this word — a typo or a word
+  /// that simply is not English. Callers must not present invented example
+  /// sentences or a translation as a definition in that case.
+  final bool found;
+
   const WordEntryModel({
     required this.word,
     this.phonetic,
@@ -17,6 +22,7 @@ class WordEntryModel {
     this.synonyms = const [],
     this.sentences = const [],
     this.isFavorite = false,
+    this.found = true,
   });
 
   factory WordEntryModel.fromJson(Map<String, dynamic> json) => WordEntryModel(
@@ -28,6 +34,7 @@ class WordEntryModel {
         synonyms: (json['synonyms'] as List<dynamic>?)?.cast<String>() ?? [],
         sentences: (json['sentences'] as List<dynamic>?)?.cast<String>() ?? [],
         isFavorite: json['isFavorite'] as bool? ?? false,
+        found: json['found'] as bool? ?? true,
       );
 
   Map<String, dynamic> toJson() => {
@@ -39,6 +46,7 @@ class WordEntryModel {
         'synonyms': synonyms,
         'sentences': sentences,
         'isFavorite': isFavorite,
+        'found': found,
       };
 
   WordEntryModel copyWith({
@@ -50,6 +58,7 @@ class WordEntryModel {
     List<String>? synonyms,
     List<String>? sentences,
     bool? isFavorite,
+    bool? found,
   }) =>
       WordEntryModel(
         word: word ?? this.word,
@@ -60,5 +69,6 @@ class WordEntryModel {
         synonyms: synonyms ?? this.synonyms,
         sentences: sentences ?? this.sentences,
         isFavorite: isFavorite ?? this.isFavorite,
+        found: found ?? this.found,
       );
 }

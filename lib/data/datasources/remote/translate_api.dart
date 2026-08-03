@@ -4,7 +4,11 @@ class TranslateApi {
   final Dio _dio;
 
   TranslateApi({Dio? dio})
-      : _dio = dio ?? Dio(BaseOptions(connectTimeout: Duration(seconds: 10)));
+      : _dio = dio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ));
 
   Future<String> translateToBangla(String text) async {
     try {

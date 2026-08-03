@@ -2,6 +2,10 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 class NoInternetException implements Exception {
   final String message = 'No internet connection. Please check your network.';
+
+  // Surfaced directly to the user by the word detail error state.
+  @override
+  String toString() => message;
 }
 
 class ConnectivityUtil {

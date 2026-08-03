@@ -5,7 +5,12 @@ import '../../../core/constants/app_constants.dart';
 class WordnikApi {
   final Dio _dio;
 
-  WordnikApi({Dio? dio}) : _dio = dio ?? Dio();
+  WordnikApi({Dio? dio})
+      : _dio = dio ??
+            Dio(BaseOptions(
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ));
 
   Future<List<String>> getExampleSentences(String word) async {
     try {
