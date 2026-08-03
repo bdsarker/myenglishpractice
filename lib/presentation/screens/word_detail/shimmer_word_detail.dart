@@ -19,12 +19,18 @@ class ShimmerWordDetail extends StatelessWidget {
             const SizedBox(height: 8),
             _box(height: 16, width: 120),
             const SizedBox(height: 24),
-            Row(
-              children: List.generate(
-                5,
-                (_) => Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _box(height: 32, width: 80),
+            // Five 88px placeholders are wider than a small phone. Clipped the
+            // same way the real synonym row scrolls, rather than overflowing.
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: Row(
+                children: List.generate(
+                  5,
+                  (_) => Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _box(height: 32, width: 80),
+                  ),
                 ),
               ),
             ),

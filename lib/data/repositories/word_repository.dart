@@ -1,10 +1,11 @@
 import 'dart:convert';
+import '../../core/constants/app_constants.dart';
 import '../../core/utils/connectivity.dart';
 import '../datasources/local/word_db.dart';
 import '../datasources/remote/dictionary_api.dart';
 import '../datasources/remote/datamuse_api.dart';
+import '../datasources/remote/sentence_api.dart';
 import '../datasources/remote/translate_api.dart';
-import '../datasources/remote/wordnik_api.dart';
 import '../models/word_entry_model.dart';
 
 class WordRepository {
@@ -12,7 +13,7 @@ class WordRepository {
   final DictionaryApi _dictionary;
   final DatamuseApi _datamuse;
   final TranslateApi _translate;
-  final WordnikApi _wordnik;
+  final SentenceApi _sentences;
   final ConnectivityUtil _connectivity;
 
   WordRepository({
@@ -20,13 +21,13 @@ class WordRepository {
     DictionaryApi? dictionary,
     DatamuseApi? datamuse,
     TranslateApi? translate,
-    WordnikApi? wordnik,
+    SentenceApi? sentences,
     ConnectivityUtil? connectivity,
   })  : _db = db ?? WordDb(),
         _dictionary = dictionary ?? DictionaryApi(),
         _datamuse = datamuse ?? DatamuseApi(),
         _translate = translate ?? TranslateApi(),
-        _wordnik = wordnik ?? WordnikApi(),
+        _sentences = sentences ?? SentenceApi(),
         _connectivity = connectivity ?? ConnectivityUtil();
 
   Future<WordEntryModel> getWordEntry(String word) async {
@@ -51,18 +52,17 @@ class WordRepository {
       _dictionary.lookup(word),
       _datamuse.getSynonyms(word),
       _translate.translateToBangla(word),
-      _wordnik.getExampleSentences(word),
+      _sentences.getExampleSentences(word),
     ]);
 
     final dictResult = results[0] as DictionaryResult?;
     final synonyms = results[1] as List<String>;
     final bangla = results[2] as String;
-    final sentences = results[3] as List<String>;
+    final corpusSentences = results[3] as List<String>;
     final isFav = await _db.isFavorite(word);
 
-    // No dictionary entry means the word does not exist. Wordnik hands back
-    // generic filler sentences in that case, so drop them rather than show
-    // invented examples for a word nobody can define.
+    // No dictionary entry means the word does not exist, so drop the sentences
+    // too — a corpus match for a non-word is a coincidence, not an example.
     final found = dictResult != null;
 
     final entry = WordEntryModel(
@@ -72,7 +72,9 @@ class WordRepository {
       englishDefinition: dictResult?.definition,
       banglaDefinition: bangla.isEmpty ? null : bangla,
       synonyms: synonyms,
-      sentences: found ? sentences : const [],
+      sentences: found
+          ? _pool(corpusSentences, dictResult.examples)
+          : const [],
       isFavorite: isFav,
       found: found,
     );
@@ -84,5 +86,22 @@ class WordRepository {
       await _db.cacheWord(entry);
     }
     return entry;
+  }
+
+  /// The whole pool the detail screen shuffles through, corpus sentences first.
+  ///
+  /// Cached in full rather than trimmed to what fits on screen, so re-opening a
+  /// word within the cache window can still draw a different five.
+  List<String> _pool(List<String> corpus, List<String> dictionary) {
+    final seen = <String>{};
+    final pool = <String>[];
+
+    for (final sentence in [...corpus, ...dictionary]) {
+      if (!seen.add(sentence.toLowerCase())) continue;
+      pool.add(sentence);
+      if (pool.length == AppConstants.sentencePoolLimit) break;
+    }
+
+    return pool;
   }
 }

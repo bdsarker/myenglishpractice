@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:myenglishpractice/core/constants/app_constants.dart';
 import 'package:myenglishpractice/core/utils/connectivity.dart';
 import 'package:myenglishpractice/data/datasources/local/word_db.dart';
 import 'package:myenglishpractice/data/datasources/remote/datamuse_api.dart';
 import 'package:myenglishpractice/data/datasources/remote/dictionary_api.dart';
+import 'package:myenglishpractice/data/datasources/remote/sentence_api.dart';
 import 'package:myenglishpractice/data/datasources/remote/translate_api.dart';
-import 'package:myenglishpractice/data/datasources/remote/wordnik_api.dart';
 import 'package:myenglishpractice/data/models/word_entry_model.dart';
 import 'package:myenglishpractice/data/repositories/word_repository.dart';
 
@@ -17,14 +18,13 @@ class _MockDatamuse extends Mock implements DatamuseApi {}
 
 class _MockTranslate extends Mock implements TranslateApi {}
 
-class _MockWordnik extends Mock implements WordnikApi {}
+class _MockSentences extends Mock implements SentenceApi {}
 
 class _MockConnectivity extends Mock implements ConnectivityUtil {}
 
-/// Wordnik hands these back for any word, real or not.
-const _fillerSentences = [
-  'She used the word "asdfgh" perfectly in her essay.',
-  'Learning to use "asdfgh" correctly will improve your writing.',
+const _corpusSentences = [
+  'An apple fell from the tree.',
+  'She ate the last apple.',
 ];
 
 void main() {
@@ -32,7 +32,7 @@ void main() {
   late _MockDictionary dictionary;
   late _MockDatamuse datamuse;
   late _MockTranslate translate;
-  late _MockWordnik wordnik;
+  late _MockSentences sentences;
   late _MockConnectivity connectivity;
   late WordRepository repository;
 
@@ -43,7 +43,7 @@ void main() {
     dictionary = _MockDictionary();
     datamuse = _MockDatamuse();
     translate = _MockTranslate();
-    wordnik = _MockWordnik();
+    sentences = _MockSentences();
     connectivity = _MockConnectivity();
 
     repository = WordRepository(
@@ -51,7 +51,7 @@ void main() {
       dictionary: dictionary,
       datamuse: datamuse,
       translate: translate,
-      wordnik: wordnik,
+      sentences: sentences,
       connectivity: connectivity,
     );
 
@@ -61,8 +61,8 @@ void main() {
     when(() => db.cacheWord(any())).thenAnswer((_) async {});
     when(() => datamuse.getSynonyms(any())).thenAnswer((_) async => []);
     when(() => translate.translateToBangla(any())).thenAnswer((_) async => 'অনুবাদ');
-    when(() => wordnik.getExampleSentences(any()))
-        .thenAnswer((_) async => _fillerSentences);
+    when(() => sentences.getExampleSentences(any()))
+        .thenAnswer((_) async => _corpusSentences);
   });
 
   test('marks a word found and caches it when the dictionary has an entry',
@@ -75,17 +75,61 @@ void main() {
 
     expect(entry.found, isTrue);
     expect(entry.englishDefinition, 'A round fruit.');
-    expect(entry.sentences, _fillerSentences);
+    expect(entry.sentences, _corpusSentences);
     verify(() => db.cacheWord(any())).called(1);
   });
 
-  test('marks a word not found and drops the invented example sentences',
-      () async {
+  test('tops the corpus pool up with the dictionary\'s own examples', () async {
+    when(() => dictionary.lookup('apple')).thenAnswer(
+      (_) async => const DictionaryResult(
+        definition: 'A round fruit.',
+        examples: [
+          // Already in the corpus list, in a different case.
+          'she ate the last apple.',
+          'He packed an apple for lunch.',
+        ],
+      ),
+    );
+
+    final entry = await repository.getWordEntry('apple');
+
+    expect(entry.sentences, [
+      ..._corpusSentences,
+      'He packed an apple for lunch.',
+    ]);
+  });
+
+  test('caps the pool so a cached row cannot grow without bound', () async {
+    when(() => sentences.getExampleSentences('apple')).thenAnswer(
+      (_) async => [
+        for (var i = 0; i < AppConstants.sentencePoolLimit + 4; i++)
+          'Sentence number $i about an apple.',
+      ],
+    );
+    when(() => dictionary.lookup('apple')).thenAnswer(
+      (_) async => const DictionaryResult(
+        definition: 'A round fruit.',
+        examples: ['One more apple sentence.'],
+      ),
+    );
+
+    final entry = await repository.getWordEntry('apple');
+
+    expect(entry.sentences, hasLength(AppConstants.sentencePoolLimit));
+    // The whole pool is cached, not just the five the screen shows, so a cache
+    // hit can still shuffle.
+    final cached = verify(() => db.cacheWord(captureAny())).captured.single
+        as WordEntryModel;
+    expect(cached.sentences, hasLength(AppConstants.sentencePoolLimit));
+  });
+
+  test('marks a word not found and drops the example sentences', () async {
     when(() => dictionary.lookup('asdfgh')).thenAnswer((_) async => null);
 
     final entry = await repository.getWordEntry('asdfgh');
 
     expect(entry.found, isFalse);
+    // A corpus hit on a word the dictionary cannot define is a coincidence.
     expect(entry.sentences, isEmpty);
   });
 

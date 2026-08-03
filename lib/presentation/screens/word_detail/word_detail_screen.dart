@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/word_entry_model.dart';
 import '../../providers/favorites_provider.dart';
@@ -108,24 +109,31 @@ class _WordDetailBody extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(entry.word, style: textTheme.titleLarge),
-                    if (entry.phonetic != null)
-                      Text(entry.phonetic!,
-                          style: textTheme.bodyMedium?.copyWith(color: AppTheme.primary)),
-                    if (entry.partOfSpeech != null)
-                      Chip(
-                        label: Text(entry.partOfSpeech!),
-                        backgroundColor: AppTheme.primary.withAlpha(40),
-                        labelStyle: TextStyle(
-                            color: AppTheme.primary.withAlpha(220), fontSize: 12),
-                        side: BorderSide(color: AppTheme.primary.withAlpha(100)),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                  ],
+                // Wrap, not Row: a long word plus both tags overflows a narrow
+                // phone, and the tags should drop to the next line rather than
+                // clip. Wrap hands its children unbounded width though, so each
+                // one is capped explicitly or a long word or IPA still spills.
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    ConstrainedBox capped(Widget child) => ConstrainedBox(
+                          constraints:
+                              BoxConstraints(maxWidth: constraints.maxWidth),
+                          child: child,
+                        );
+
+                    return Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        capped(Text(entry.word, style: textTheme.titleLarge)),
+                        if (entry.phonetic != null)
+                          capped(_Tag(label: entry.phonetic!)),
+                        if (entry.partOfSpeech != null)
+                          capped(_Tag(label: entry.partOfSpeech!)),
+                      ],
+                    );
+                  },
                 ),
               ),
               IconButton(
@@ -142,7 +150,9 @@ class _WordDetailBody extends ConsumerWidget {
 
           // Synonyms
           if (entry.synonyms.isNotEmpty) ...[
-            const SizedBox(height: 20),
+            // Matches the gap below the label, so it groups with the chips it
+            // describes rather than floating between two sections.
+            const SizedBox(height: 8),
             Text('Synonyms',
                 style: textTheme.bodyMedium
                     ?.copyWith(color: Colors.white38, fontSize: 12)),
@@ -232,48 +242,145 @@ class _WordDetailBody extends ConsumerWidget {
           ],
 
           // Example sentences
-          if (entry.sentences.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                const Icon(Icons.format_quote_rounded, color: AppTheme.primary, size: 18),
-                const SizedBox(width: 6),
-                Text('Example Sentences',
-                    style: textTheme.titleMedium?.copyWith(fontSize: 14)),
-              ],
-            ),
-            const Divider(height: 16),
-            ...entry.sentences.asMap().entries.map((e) {
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: const Icon(Icons.book_outlined,
-                      color: AppTheme.primary, size: 20),
-                  title: Text(e.value, style: textTheme.bodyMedium),
-                  trailing: Builder(builder: (ctx) {
-                    return IconButton(
-                      icon: const Icon(Icons.copy, size: 16, color: Colors.white38),
-                      tooltip: 'Copy',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: e.value));
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                            content: Text('Sentence copied!'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                    );
-                  }),
-                ),
-              )
-                  .animate(delay: Duration(milliseconds: 200 + e.key * 60))
-                  .fadeIn()
-                  .slideY(begin: 0.05, end: 0);
-            }),
-          ],
+          if (entry.sentences.isNotEmpty)
+            _ExampleSentences(sentences: entry.sentences),
         ],
       ),
+    );
+  }
+}
+
+/// The pronunciation and part-of-speech pills that sit beside the word.
+///
+/// A true oval: [StadiumBorder] rather than the theme's rounded rectangle, so
+/// the ends stay semicircular whatever the label's length.
+class _Tag extends StatelessWidget {
+  final String label;
+  const _Tag({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: ShapeDecoration(
+        color: AppTheme.primary.withAlpha(40),
+        shape: StadiumBorder(
+          side: BorderSide(color: AppTheme.primary.withAlpha(100)),
+        ),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppTheme.primary.withAlpha(230),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+/// Shows [AppConstants.sentenceLimit] of the cached pool, with a shuffle button
+/// for the rest.
+///
+/// The draw happens in [initState], never in `build` — otherwise any unrelated
+/// rebuild (favouriting the word, say) would reshuffle under the user's finger.
+class _ExampleSentences extends StatefulWidget {
+  final List<String> sentences;
+  const _ExampleSentences({required this.sentences});
+
+  @override
+  State<_ExampleSentences> createState() => _ExampleSentencesState();
+}
+
+class _ExampleSentencesState extends State<_ExampleSentences> {
+  late List<String> _shown;
+
+  bool get _canShuffle => widget.sentences.length > AppConstants.sentenceLimit;
+
+  @override
+  void initState() {
+    super.initState();
+    _shown = _draw();
+  }
+
+  @override
+  void didUpdateWidget(_ExampleSentences oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.sentences != oldWidget.sentences) {
+      _shown = _draw();
+    }
+  }
+
+  List<String> _draw() => (List<String>.of(widget.sentences)..shuffle())
+      .take(AppConstants.sentenceLimit)
+      .toList();
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            const Icon(Icons.format_quote_rounded, color: AppTheme.primary, size: 18),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text('Example Sentences',
+                  style: textTheme.titleMedium?.copyWith(fontSize: 14)),
+            ),
+            if (_canShuffle)
+              IconButton(
+                icon: const Icon(Icons.shuffle_rounded,
+                    size: 18, color: AppTheme.primary),
+                tooltip: 'Show different sentences',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() => _shown = _draw()),
+              ),
+          ],
+        ),
+        const Divider(height: 16),
+        ..._shown.asMap().entries.map((e) {
+          return Card(
+            // Keyed by text so a shuffle replays the entry animation instead of
+            // swapping the string inside the old element.
+            key: ValueKey(e.value),
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              leading: const Icon(Icons.book_outlined,
+                  color: AppTheme.primary, size: 20),
+              title: Text(e.value, style: textTheme.bodyMedium),
+              trailing: Builder(builder: (ctx) {
+                return IconButton(
+                  icon: const Icon(Icons.copy, size: 16, color: Colors.white38),
+                  tooltip: 'Copy',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: e.value));
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Sentence copied!'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                );
+              }),
+            ),
+          )
+              .animate(delay: Duration(milliseconds: 200 + e.key * 60))
+              .fadeIn()
+              .slideY(begin: 0.05, end: 0);
+        }),
+        // Tatoeba sentences are CC BY 2.0 FR — the credit is a licence term.
+        const SizedBox(height: 4),
+        Text(
+          'Examples from Tatoeba · CC BY 2.0 FR',
+          style: textTheme.bodySmall?.copyWith(color: Colors.white24, fontSize: 11),
+        ),
+      ],
     );
   }
 }

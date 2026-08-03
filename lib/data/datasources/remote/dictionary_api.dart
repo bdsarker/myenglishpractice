@@ -6,7 +6,16 @@ class DictionaryResult {
   final String? partOfSpeech;
   final String? definition;
 
-  const DictionaryResult({this.phonetic, this.partOfSpeech, this.definition});
+  /// Usage examples the API attaches to its definitions. Curated and specific
+  /// to the word, but present for only some entries.
+  final List<String> examples;
+
+  const DictionaryResult({
+    this.phonetic,
+    this.partOfSpeech,
+    this.definition,
+    this.examples = const [],
+  });
 }
 
 /// The dictionary could not be reached, or answered with a server error.
@@ -69,7 +78,30 @@ class DictionaryApi {
       phonetic: phonetic,
       partOfSpeech: partOfSpeech,
       definition: definition,
+      examples: _examples(meanings),
     );
+  }
+
+  /// Every `example` across every meaning, not just the first — they cost
+  /// nothing extra, the response is already here.
+  List<String> _examples(List<dynamic> meanings) {
+    final examples = <String>[];
+
+    for (final meaning in meanings) {
+      if (meaning is! Map) continue;
+      final defs = meaning['definitions'];
+      if (defs is! List) continue;
+
+      for (final def in defs) {
+        if (def is! Map) continue;
+        final example = def['example'];
+        if (example is String && example.trim().isNotEmpty) {
+          examples.add(example.trim());
+        }
+      }
+    }
+
+    return examples;
   }
 
   Future<Response<dynamic>> _get(String word) async {
