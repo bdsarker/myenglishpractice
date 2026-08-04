@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declared here, not only in src/debug: Flutter's template puts INTERNET
+         in the debug and profile manifests alone, so a release build ships with
+         no network access at all and every lookup fails at the socket. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="Word Depot"
         android:name="${applicationName}"
