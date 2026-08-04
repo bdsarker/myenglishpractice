@@ -1,5 +1,5 @@
 class AppConstants {
-  static const String appName = 'EnglishBuddy';
+  static const String appName = 'Word Depot';
   static const int suggestionLimit = 10;
   static const int synonymLimit = 5;
 

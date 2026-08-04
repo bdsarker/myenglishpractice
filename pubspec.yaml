@@ -51,6 +51,34 @@ dev_dependencies:
 
   flutter_lints: ^5.0.0
   mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
+
+# Regenerate the launcher icons with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/icon/app_icon.png"
+
+  android: "ic_launcher"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0F172A"
+  # The logo doubles as the foreground: its navy field is the same #0F172A as
+  # the background above, so the mask seam is invisible and no separate
+  # bubble-on-transparent asset is needed.
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  # Not the default 16. Android only guarantees the middle 72dp of the 108dp
+  # canvas, and the bubble is 47% of the source — at inset 0 it lands at ~51dp
+  # inside that circle, where the default would shrink it to a ~35dp speck.
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: "assets/icon/app_icon.png"
+
+  ios: true
+  # A separate, already-opaque 1024px source. The App Store rejects icons with
+  # an alpha channel, and iOS applies its own squircle mask — so the corners are
+  # pre-flooded with the logo's navy, making it a full-bleed square that iOS
+  # rounds once rather than clipping the rounded corners a second time.
+  #
+  # Not done with remove_alpha_ios/background_color_ios: 0.14.4 ignores the
+  # configured colour and flattens to a green chroma key instead.
+  image_path_ios: "assets/icon/app_icon_ios.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

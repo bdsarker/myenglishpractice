@@ -46,14 +46,14 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(Icons.star_outline_rounded,
-                            size: 64, color: Colors.white12),
+                            size: 64, color: AppTheme.decor),
                         const SizedBox(height: 16),
                         Text(
                           'No saved words yet',
                           style: Theme.of(context)
                               .textTheme
                               .bodyMedium
-                              ?.copyWith(color: Colors.white38),
+                              ?.copyWith(color: AppTheme.inkFaint),
                         ),
                       ],
                     ).animate().fadeIn(),
@@ -76,12 +76,12 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyMedium
-                                      ?.copyWith(color: Colors.white38),
+                                      ?.copyWith(color: AppTheme.inkFaint),
                                 )
                               : null,
                           trailing: IconButton(
                             icon: const Icon(Icons.delete_outline,
-                                color: Colors.redAccent, size: 20),
+                                color: AppTheme.error, size: 20),
                             onPressed: () => ref
                                 .read(favoritesProvider.notifier)
                                 .toggleFavorite(entry),

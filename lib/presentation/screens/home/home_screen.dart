@@ -158,7 +158,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   itemBuilder: (context, index) {
                     final word = _recentSearches[index];
                     return ListTile(
-                      leading: const Icon(Icons.history, color: Colors.white38, size: 18),
+                      leading: const Icon(Icons.history, color: AppTheme.inkFaint, size: 18),
                       title: Text(word),
                       onTap: () => _go(word),
                     )

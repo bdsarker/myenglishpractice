@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the Flutter scaffold, so the handoff from splash to first frame
+         has no visible step. Fixed rather than ?android:colorBackground: the app
+         is light-only, and the themed attribute goes black in system dark mode. -->
+    <color name="splash_background">#F5F7FA</color>
+	<color name="ic_launcher_background">#0F172A</color>
+</resources>

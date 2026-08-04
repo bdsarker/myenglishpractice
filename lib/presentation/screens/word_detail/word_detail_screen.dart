@@ -27,7 +27,7 @@ class WordDetailScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                const Icon(Icons.error_outline, color: AppTheme.error, size: 48),
                 const SizedBox(height: 12),
                 Text(e.toString(), textAlign: TextAlign.center),
                 const SizedBox(height: 16),
@@ -63,7 +63,7 @@ class _WordNotFound extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.search_off_rounded, size: 64, color: Colors.white38),
+            const Icon(Icons.search_off_rounded, size: 64, color: AppTheme.inkFaint),
             const SizedBox(height: 16),
             Text(
               'No definition found for "$word"',
@@ -73,7 +73,7 @@ class _WordNotFound extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Check the spelling and try again.',
-              style: textTheme.bodyMedium?.copyWith(color: Colors.white38),
+              style: textTheme.bodyMedium?.copyWith(color: AppTheme.inkFaint),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -139,7 +139,7 @@ class _WordDetailBody extends ConsumerWidget {
               IconButton(
                 icon: Icon(
                   isFav ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: isFav ? AppTheme.accent : Colors.white38,
+                  color: isFav ? AppTheme.accent : AppTheme.inkFaint,
                   size: 32,
                 ),
                 onPressed: () =>
@@ -155,7 +155,7 @@ class _WordDetailBody extends ConsumerWidget {
             const SizedBox(height: 8),
             Text('Synonyms',
                 style: textTheme.bodyMedium
-                    ?.copyWith(color: Colors.white38, fontSize: 12)),
+                    ?.copyWith(color: AppTheme.inkFaint, fontSize: 12)),
             const SizedBox(height: 8),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -184,7 +184,7 @@ class _WordDetailBody extends ConsumerWidget {
                   children: [
                     Text('Meanings',
                         style: textTheme.bodyMedium
-                            ?.copyWith(color: Colors.white38, fontSize: 12)),
+                            ?.copyWith(color: AppTheme.inkFaint, fontSize: 12)),
                     const Divider(height: 16),
                     if (entry.banglaDefinition != null) ...[
                       Row(
@@ -265,13 +265,15 @@ class _Tag extends StatelessWidget {
       decoration: ShapeDecoration(
         color: AppTheme.primary.withAlpha(40),
         shape: StadiumBorder(
-          side: BorderSide(color: AppTheme.primary.withAlpha(100)),
+          side: BorderSide(color: AppTheme.primary.withAlpha(90)),
         ),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppTheme.primary.withAlpha(230),
+              // Solid, not the alpha-230 the dark backdrop wanted — over the
+              // pale teal fill this is what keeps the label at full contrast.
+              color: AppTheme.primary,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -355,7 +357,7 @@ class _ExampleSentencesState extends State<_ExampleSentences> {
               title: Text(e.value, style: textTheme.bodyMedium),
               trailing: Builder(builder: (ctx) {
                 return IconButton(
-                  icon: const Icon(Icons.copy, size: 16, color: Colors.white38),
+                  icon: const Icon(Icons.copy, size: 16, color: AppTheme.inkFaint),
                   tooltip: 'Copy',
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: e.value));
@@ -378,7 +380,7 @@ class _ExampleSentencesState extends State<_ExampleSentences> {
         const SizedBox(height: 4),
         Text(
           'Examples from Tatoeba · CC BY 2.0 FR',
-          style: textTheme.bodySmall?.copyWith(color: Colors.white24, fontSize: 11),
+          style: textTheme.bodySmall?.copyWith(color: AppTheme.decor, fontSize: 11),
         ),
       ],
     );

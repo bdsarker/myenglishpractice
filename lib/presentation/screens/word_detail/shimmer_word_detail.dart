@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
-import '../../../core/theme/app_theme.dart';
 
 class ShimmerWordDetail extends StatelessWidget {
+  /// The placeholder grey. Shared by the boxes and the sweep's base colour.
+  static const _base = Color(0xFFE6EAF0);
+
   const ShimmerWordDetail({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // The theme's surface and card are both white now, so the skeleton needs
+    // its own greys: base has to be darker than highlight or there is nothing
+    // to see, let alone sweep.
     return Shimmer.fromColors(
-      baseColor: AppTheme.surface,
-      highlightColor: AppTheme.cardColor,
+      baseColor: _base,
+      highlightColor: const Color(0xFFF7F9FC),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -53,7 +58,7 @@ class ShimmerWordDetail extends StatelessWidget {
         height: height,
         width: width,
         decoration: BoxDecoration(
-          color: AppTheme.surface,
+          color: _base,
           borderRadius: BorderRadius.circular(8),
         ),
       );
