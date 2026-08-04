@@ -6,19 +6,54 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/word_entry_model.dart';
 import '../../providers/favorites_provider.dart';
+import '../../providers/speech_provider.dart';
 import '../../providers/word_detail_provider.dart';
 import 'shimmer_word_detail.dart';
 
-class WordDetailScreen extends ConsumerWidget {
+/// Stateful only so [dispose] can silence the engine — otherwise tapping back
+/// mid-sentence leaves the phone talking to itself.
+class WordDetailScreen extends ConsumerStatefulWidget {
   final String word;
   const WordDetailScreen({super.key, required this.word});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WordDetailScreen> createState() => _WordDetailScreenState();
+}
+
+class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
+  String get word => widget.word;
+
+  /// Held rather than read in [dispose]: `ref` is already invalidated by then.
+  /// Safe to hold because the notifier lives in the root scope, for the life of
+  /// the app.
+  late final SpeechNotifier _speech;
+
+  @override
+  void initState() {
+    super.initState();
+    _speech = ref.read(speechProvider.notifier);
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final asyncEntry = ref.watch(wordDetailProvider(word));
+    // Only once there is something to favourite: absent while loading, and for
+    // a word the dictionary has no entry for.
+    final entry = asyncEntry.valueOrNull;
 
     return Scaffold(
-      appBar: AppBar(title: Text(word)),
+      appBar: AppBar(
+        title: Text(word),
+        actions: [
+          if (entry != null && entry.found) _FavoriteButton(entry: entry),
+        ],
+      ),
       body: asyncEntry.when(
         loading: () => const ShimmerWordDetail(),
         error: (e, _) => Padding(
@@ -96,8 +131,6 @@ class _WordDetailBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
-    final favorites = ref.watch(favoritesProvider);
-    final isFav = favorites.any((f) => f.word == entry.word) || entry.isFavorite;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -136,14 +169,10 @@ class _WordDetailBody extends ConsumerWidget {
                   },
                 ),
               ),
-              IconButton(
-                icon: Icon(
-                  isFav ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: isFav ? AppTheme.accent : AppTheme.inkFaint,
-                  size: 32,
-                ),
-                onPressed: () =>
-                    ref.read(favoritesProvider.notifier).toggleFavorite(entry),
+              _SpeakButton(
+                text: entry.word,
+                size: 28,
+                tooltip: 'Pronounce "${entry.word}"',
               ),
             ],
           ).animate().fadeIn().slideY(begin: -0.05, end: 0),
@@ -250,6 +279,64 @@ class _WordDetailBody extends ConsumerWidget {
   }
 }
 
+/// Reads [text] aloud, or stops it if this is the text already playing.
+///
+/// Only one thing speaks at a time app-wide, so every instance watches the same
+/// [speechProvider] and at most one of them shows a stop icon.
+class _SpeakButton extends ConsumerWidget {
+  final String text;
+  final double size;
+  final String tooltip;
+
+  const _SpeakButton({
+    required this.text,
+    required this.size,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isSpeaking = ref.watch(speechProvider) == text;
+
+    return IconButton(
+      icon: Icon(
+        isSpeaking ? Icons.stop_rounded : Icons.volume_up_rounded,
+        color: AppTheme.primary,
+        size: size,
+      ),
+      tooltip: isSpeaking ? 'Stop' : tooltip,
+      // Keeps the sentence rows' leading slot near 40px instead of pushing the
+      // text right by a full 48px button.
+      visualDensity: VisualDensity.compact,
+      onPressed: () => ref.read(speechProvider.notifier).toggle(text),
+    );
+  }
+}
+
+/// The favourite star, in the AppBar so the word and its pills get the whole
+/// width of the row below.
+class _FavoriteButton extends ConsumerWidget {
+  final WordEntryModel entry;
+  const _FavoriteButton({required this.entry});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final favorites = ref.watch(favoritesProvider);
+    final isFav = favorites.any((f) => f.word == entry.word) || entry.isFavorite;
+
+    return IconButton(
+      icon: Icon(
+        isFav ? Icons.star_rounded : Icons.star_outline_rounded,
+        color: isFav ? AppTheme.accent : AppTheme.inkFaint,
+        size: 28,
+      ),
+      tooltip: isFav ? 'Remove from saved words' : 'Save this word',
+      onPressed: () =>
+          ref.read(favoritesProvider.notifier).toggleFavorite(entry),
+    );
+  }
+}
+
 /// The pronunciation and part-of-speech pills that sit beside the word.
 ///
 /// A true oval: [StadiumBorder] rather than the theme's rounded rectangle, so
@@ -352,8 +439,11 @@ class _ExampleSentencesState extends State<_ExampleSentences> {
             key: ValueKey(e.value),
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
-              leading: const Icon(Icons.book_outlined,
-                  color: AppTheme.primary, size: 20),
+              leading: _SpeakButton(
+                text: e.value,
+                size: 20,
+                tooltip: 'Read this sentence',
+              ),
               title: Text(e.value, style: textTheme.bodyMedium),
               trailing: Builder(builder: (ctx) {
                 return IconButton(

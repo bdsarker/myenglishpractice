@@ -7,12 +7,19 @@ import 'package:myenglishpractice/data/models/word_entry_model.dart';
 import 'package:myenglishpractice/domain/usecases/get_all_favorites.dart';
 import 'package:myenglishpractice/domain/usecases/toggle_favorite.dart';
 import 'package:myenglishpractice/presentation/providers/favorites_provider.dart';
+import 'package:myenglishpractice/presentation/providers/speech_provider.dart';
 import 'package:myenglishpractice/presentation/providers/word_detail_provider.dart';
 import 'package:myenglishpractice/presentation/screens/word_detail/word_detail_screen.dart';
+
+import '../support/fake_speaker.dart';
 
 class _MockGetAllFavorites extends Mock implements GetAllFavorites {}
 
 class _MockToggleFavorite extends Mock implements ToggleFavorite {}
+
+/// Both set by [_pumpDetail] so tests can read back what was spoken and saved.
+late FakeSpeaker _speaker;
+late _MockToggleFavorite _toggleFavorite;
 
 /// A pool bigger than what the screen shows, so shuffle has somewhere to go.
 final _pool = [
@@ -25,13 +32,21 @@ Future<void> _pumpDetail(WidgetTester tester, WordEntryModel entry) async {
   final getAllFavorites = _MockGetAllFavorites();
   when(getAllFavorites.call).thenAnswer((_) async => <WordEntryModel>[]);
 
+  _toggleFavorite = _MockToggleFavorite();
+  when(() => _toggleFavorite.call(any())).thenAnswer((_) async => true);
+
+  // And the speak buttons would otherwise reach for a MethodChannel that no
+  // test host provides.
+  _speaker = FakeSpeaker();
+
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         wordDetailProvider(entry.word).overrideWith((ref) async => entry),
         favoritesProvider.overrideWith(
-          (ref) => FavoritesNotifier(getAllFavorites, _MockToggleFavorite()),
+          (ref) => FavoritesNotifier(getAllFavorites, _toggleFavorite),
         ),
+        speakerProvider.overrideWithValue(_speaker),
       ],
       child: MaterialApp(home: WordDetailScreen(word: entry.word)),
     ),
@@ -55,6 +70,16 @@ Finder _inBody(String text) => find.descendant(
       matching: find.text(text),
     );
 
+/// The speak button belonging to one sentence — scoped to its own row, since
+/// every row has an identical one.
+Finder _speakButtonFor(String sentence) => find.descendant(
+      of: find.ancestor(
+        of: find.text(sentence),
+        matching: find.byType(ListTile),
+      ),
+      matching: find.byIcon(Icons.volume_up_rounded),
+    );
+
 /// The pronunciation and part-of-speech pills, found by their oval shape.
 Iterable<Container> _tags(WidgetTester tester) =>
     tester.widgetList<Container>(find.byType(Container)).where((c) {
@@ -63,6 +88,8 @@ Iterable<Container> _tags(WidgetTester tester) =>
     });
 
 void main() {
+  setUpAll(() => registerFallbackValue(const WordEntryModel(word: '')));
+
   testWidgets('sets the pronunciation and part of speech beside the word',
       (tester) async {
     await _pumpDetail(
@@ -184,5 +211,150 @@ void main() {
     );
 
     expect(find.textContaining('Tatoeba'), findsOneWidget);
+  });
+
+  testWidgets('pronounces the word from the button beside it', (tester) async {
+    await _pumpDetail(tester, const WordEntryModel(word: 'apple'));
+
+    await tester.tap(find.byIcon(Icons.volume_up_rounded));
+    await tester.pumpAndSettle();
+
+    expect(_speaker.log, ['speak:apple']);
+  });
+
+  testWidgets('gives every sentence its own button', (tester) async {
+    await _pumpDetail(
+      tester,
+      WordEntryModel(word: 'apple', sentences: _pool),
+    );
+
+    // One per sentence, plus the word's own.
+    expect(
+      find.byIcon(Icons.volume_up_rounded),
+      findsNWidgets(AppConstants.sentenceLimit + 1),
+    );
+
+    final third = _visibleSentences(tester)[2];
+    await tester.tap(_speakButtonFor(third));
+    await tester.pumpAndSettle();
+
+    expect(_speaker.log, ['speak:$third']);
+  });
+
+  testWidgets('drops the decorative book icon the button replaced',
+      (tester) async {
+    await _pumpDetail(
+      tester,
+      WordEntryModel(word: 'apple', sentences: _pool),
+    );
+
+    expect(find.byIcon(Icons.book_outlined), findsNothing);
+  });
+
+  testWidgets('a second sentence interrupts the first', (tester) async {
+    await _pumpDetail(
+      tester,
+      WordEntryModel(word: 'apple', sentences: _pool),
+    );
+
+    final shown = _visibleSentences(tester);
+    await tester.tap(_speakButtonFor(shown.first));
+    await tester.pumpAndSettle();
+    await tester.tap(_speakButtonFor(shown[1]));
+    await tester.pumpAndSettle();
+
+    // No stop in between: the engine adapter issues that itself, so the two
+    // never overlap. See tts_speaker_test.dart.
+    expect(_speaker.log, ['speak:${shown.first}', 'speak:${shown[1]}']);
+  });
+
+  testWidgets('tapping the playing button stops instead of replaying',
+      (tester) async {
+    await _pumpDetail(tester, const WordEntryModel(word: 'apple'));
+
+    await tester.tap(find.byIcon(Icons.volume_up_rounded));
+    await tester.pumpAndSettle();
+    // The same button, now showing stop.
+    await tester.tap(find.byIcon(Icons.stop_rounded));
+    await tester.pumpAndSettle();
+
+    expect(_speaker.log, ['speak:apple', 'stop']);
+  });
+
+  testWidgets('only the playing button shows the stop icon', (tester) async {
+    await _pumpDetail(
+      tester,
+      WordEntryModel(word: 'apple', sentences: _pool),
+    );
+
+    final total = AppConstants.sentenceLimit + 1;
+    expect(find.byIcon(Icons.stop_rounded), findsNothing);
+
+    await tester.tap(_speakButtonFor(_visibleSentences(tester).first));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.stop_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.volume_up_rounded), findsNWidgets(total - 1));
+
+    // And it goes back when the engine reports it finished on its own.
+    _speaker.finish();
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.stop_rounded), findsNothing);
+    expect(find.byIcon(Icons.volume_up_rounded), findsNWidgets(total));
+  });
+
+  testWidgets('leaving the screen silences whatever is playing', (tester) async {
+    await _pumpDetail(tester, const WordEntryModel(word: 'apple'));
+
+    await tester.tap(find.byIcon(Icons.volume_up_rounded));
+    await tester.pumpAndSettle();
+
+    // Tear the screen down the way popping the route would.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+
+    expect(_speaker.log, ['speak:apple', 'stop']);
+  });
+
+  group('the favourite star', () {
+    testWidgets('sits in the AppBar, not the body', (tester) async {
+      await _pumpDetail(tester, const WordEntryModel(word: 'apple'));
+
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byIcon(Icons.star_outline_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(SingleChildScrollView),
+          matching: find.byIcon(Icons.star_outline_rounded),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('still toggles', (tester) async {
+      await _pumpDetail(tester, const WordEntryModel(word: 'apple'));
+
+      await tester.tap(find.byIcon(Icons.star_outline_rounded));
+      await tester.pumpAndSettle();
+
+      verify(() => _toggleFavorite.call(any())).called(1);
+    });
+
+    testWidgets('is absent for a word with no entry', (tester) async {
+      // Nothing to save, so no button that would appear to do nothing.
+      await _pumpDetail(
+        tester,
+        const WordEntryModel(word: 'asdfghjkl', found: false),
+      );
+
+      expect(find.byIcon(Icons.star_outline_rounded), findsNothing);
+      expect(find.byIcon(Icons.star_rounded), findsNothing);
+    });
   });
 }
