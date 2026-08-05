@@ -1,0 +1,96 @@
+%% Read path for a single word — `WordRepository.getWordEntry(word)`.
+%% Favorites write path is described in prose in ARCHITECTURE.md.
+%% Red = throw path (blast radius is the entire detail screen).
+%% Gray = swallow path (returns empty; screen renders without that section).
+
+flowchart LR
+
+%% ---------- Presentation ----------
+    U(["User taps suggestion"])
+    WDS["WordDetailScreen"]
+    WDP[["wordDetailProvider(word)"]]
+
+%% ---------- Domain / repository ----------
+    GWE["GetWordEntry.call(word)"]
+    WR["WordRepository.getWordEntry(word)"]
+
+%% ---------- Cache check ----------
+    CACHE{{"WordDb.getCachedWord(word)<br/>fresh row ≤ 24h?"}}
+    CACHE_HIT["Return cached WordEntryModel<br/><i>synonyms + sentences + banglaDefinition only</i><br/><b>gap: phonetic / partOfSpeech / englishDefinition are lost</b>"]
+
+%% ---------- Connectivity gate ----------
+    CONN{{"ConnectivityUtil.checkConnectivity()"}}
+    CONN_FAIL(["throw NoInternetException<br/><b>UI: 'No internet connection'</b>"])
+
+%% ---------- Fan-out ----------
+    subgraph FANOUT["Future.wait fan-out (all four run in parallel)"]
+        direction TB
+        DICT["DictionaryApi.lookup<br/><i>4 retries, 300ms backoff</i>"]
+        DM["DatamuseApi.getSynonyms"]
+        TR["TranslateApi.translateToBangla"]
+        SENT["SentenceApi.getExampleSentences"]
+    end
+
+%% ---------- Dictionary outcomes ----------
+    DICT_HIT["DictionaryResult<br/>phonetic, POS, definition, examples"]
+    DICT_404["null (404)<br/>found = false<br/>sentences dropped even if corpus had them"]
+    DICT_THROW(["throw DictionaryUnavailableException<br/><b>entire screen blanks — sentences too</b>"])
+
+%% ---------- Other API outcomes ----------
+    DM_OK["List of synonym strings"]
+    DM_FAIL["[] (DioException swallowed)"]
+    TR_OK["Bangla string"]
+    TR_FAIL["'' (DioException swallowed)"]
+    SENT_OK["List of example sentences"]
+    SENT_FAIL["[] (DioException swallowed)"]
+
+%% ---------- Merge & cache ----------
+    MERGE["Build WordEntryModel"]
+    CACHE_WRITE["WordDb.cacheWord(entry)<br/><i>only when found = true</i>"]
+    NO_CACHE["Skip cache write<br/><i>misses uncached — a transient 5xx<br/>would pin a real word as unknown</i>"]
+    RETURN(["FutureProvider resolves<br/>WordDetailScreen renders"])
+
+%% ---------- Edges ----------
+    U --> WDS --> WDP --> GWE --> WR --> CACHE
+
+    CACHE -->|hit| CACHE_HIT --> RETURN
+    CACHE -->|miss| CONN
+
+    CONN -->|no network| CONN_FAIL
+    CONN -->|online| FANOUT
+
+    DICT -->|"200 with entry"| DICT_HIT
+    DICT -->|"404 no such word"| DICT_404
+    DICT -.->|"5xx / timeout after 4 tries"| DICT_THROW
+
+    DM -->|"success"| DM_OK
+    DM -.->|"DioException"| DM_FAIL
+    TR -->|"success"| TR_OK
+    TR -.->|"DioException"| TR_FAIL
+    SENT -->|"success"| SENT_OK
+    SENT -.->|"DioException"| SENT_FAIL
+
+    DICT_HIT --> MERGE
+    DICT_404 --> MERGE
+    DM_OK --> MERGE
+    DM_FAIL --> MERGE
+    TR_OK --> MERGE
+    TR_FAIL --> MERGE
+    SENT_OK --> MERGE
+    SENT_FAIL --> MERGE
+
+    DICT_THROW ==> RETURN
+
+    MERGE -->|"found = true"| CACHE_WRITE --> RETURN
+    MERGE -->|"found = false"| NO_CACHE --> RETURN
+
+%% ---------- Styling ----------
+    classDef throwPath fill:#fee2e2,stroke:#b91c1c,color:#7f1d1d,stroke-width:2px
+    classDef swallowPath fill:#f3f4f6,stroke:#9ca3af,color:#4b5563,stroke-dasharray:4 2
+    classDef gap fill:#fef3c7,stroke:#b45309,color:#78350f
+    classDef terminal fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
+
+    class DICT_THROW,CONN_FAIL throwPath
+    class DM_FAIL,TR_FAIL,SENT_FAIL swallowPath
+    class CACHE_HIT,DICT_404,NO_CACHE gap
+    class U,RETURN terminal

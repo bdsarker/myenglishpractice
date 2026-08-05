@@ -1,0 +1,240 @@
+classDiagram
+    direction LR
+
+%% =========================================================================
+%% Presentation layer — Riverpod providers and their StateNotifiers.
+%% Widgets are intentionally out of scope; screens consume these providers.
+%% =========================================================================
+
+    class speakerProvider {
+        <<provider>>
+    }
+    class speechProvider {
+        <<provider>>
+    }
+    class wordDetailProvider {
+        <<provider>>
+    }
+    class wordListAssetProvider {
+        <<provider>>
+    }
+    class getSuggestionsProvider {
+        <<provider>>
+    }
+    class favoritesProvider {
+        <<provider>>
+    }
+
+    class SpeechNotifier {
+        -_speaker : Speaker
+        +toggle(text: String) Future~void~
+        +stop() Future~void~
+    }
+
+    class FavoritesNotifier {
+        -_getAllFavorites : GetAllFavorites
+        -_toggleFavorite : ToggleFavorite
+        +loadFavorites() Future~void~
+        +toggleFavorite(entry: WordEntryModel) Future~bool~
+    }
+
+%% =========================================================================
+%% Domain layer — one callable class per usecase.
+%% =========================================================================
+
+    class GetWordEntry {
+        -_repository : WordRepository
+        +call(word: String) Future~WordEntryModel~
+    }
+    class GetSuggestions {
+        -_asset : WordListAsset
+        +call(prefix: String) Future~List~String~~
+    }
+    class ToggleFavorite {
+        -_repository : FavoritesRepository
+        +call(entry: WordEntryModel) Future~bool~
+    }
+    class GetAllFavorites {
+        -_repository : FavoritesRepository
+        +call() Future~List~WordEntryModel~~
+    }
+
+%% =========================================================================
+%% Data layer — repositories.
+%% =========================================================================
+
+    class WordRepository {
+        -_db : WordDb
+        -_dictionary : DictionaryApi
+        -_datamuse : DatamuseApi
+        -_translate : TranslateApi
+        -_sentences : SentenceApi
+        -_connectivity : ConnectivityUtil
+        +getWordEntry(word: String) Future~WordEntryModel~
+    }
+    class FavoritesRepository {
+        -_db : WordDb
+        +saveFavorite(entry: WordEntryModel) Future~void~
+        +removeFavorite(word: String) Future~void~
+        +isFavorite(word: String) Future~bool~
+        +getAllFavorites() Future~List~WordEntryModel~~
+    }
+
+%% =========================================================================
+%% Data layer — remote datasources. Each owns its own Dio.
+%% =========================================================================
+
+    class DictionaryApi {
+        -_dio : Dio
+        +lookup(word: String) Future~DictionaryResult~
+    }
+    class DictionaryResult {
+        +phonetic : String?
+        +partOfSpeech : String?
+        +definition : String?
+        +examples : List~String~
+    }
+    class DictionaryUnavailableException {
+        <<exception>>
+        +toString() String
+    }
+    class DatamuseApi {
+        -_dio : Dio
+        +getSynonyms(word: String) Future~List~String~~
+    }
+    class TranslateApi {
+        -_dio : Dio
+        +translateToBangla(text: String) Future~String~
+    }
+    class SentenceApi {
+        -_dio : Dio
+        +getExampleSentences(word: String) Future~List~String~~
+    }
+
+%% =========================================================================
+%% Data layer — local datasources.
+%% =========================================================================
+
+    class WordDb {
+        -_db : Database?
+        +database Future~Database~
+        +saveFavorite(entry: WordEntryModel) Future~void~
+        +removeFavorite(word: String) Future~void~
+        +getAllFavorites() Future~List~Row~~
+        +isFavorite(word: String) Future~bool~
+        +cacheWord(entry: WordEntryModel) Future~void~
+        +getCachedWord(word: String) Future~Row~
+    }
+    class WordListAsset {
+        -_loader : Function
+        -_words : List~String~
+        -_wordSet : Set~String~
+        -_loading : Future~void~
+        +load() Future~void~
+        +getSuggestions(prefix: String) Future~List~String~~
+    }
+
+%% =========================================================================
+%% Data layer — models. Plain classes, hand-written fromJson/copyWith.
+%% =========================================================================
+
+    class WordEntryModel {
+        +word : String
+        +phonetic : String?
+        +partOfSpeech : String?
+        +englishDefinition : String?
+        +banglaDefinition : String?
+        +synonyms : List~String~
+        +sentences : List~String~
+        +isFavorite : bool
+        +found : bool
+        +fromJson(json: Map) WordEntryModel$
+        +toJson() Map
+        +copyWith() WordEntryModel
+    }
+    class WordModel {
+        +word : String
+        +phonetic : String?
+        +partOfSpeech : String?
+        +definition : String?
+        +fromJson(json: Map) WordModel$
+        +toJson() Map
+        +copyWith() WordModel
+    }
+
+%% =========================================================================
+%% Core — cross-cutting services and utilities.
+%% =========================================================================
+
+    class Speaker {
+        <<interface>>
+        +speak(text: String) Future~void~
+        +stop() Future~void~
+        +onFinished(callback: VoidCallback)
+        +dispose()
+    }
+    class TtsSpeaker {
+        -_tts : FlutterTts
+        -_onFinished : VoidCallback?
+        -_ready : Future~void~
+        +speak(text: String) Future~void~
+        +stop() Future~void~
+        +onFinished(callback: VoidCallback)
+        +dispose()
+    }
+    class ConnectivityUtil {
+        +checkConnectivity() Future~void~
+    }
+    class NoInternetException {
+        <<exception>>
+        +message : String
+        +toString() String
+    }
+
+%% =========================================================================
+%% Relationships
+%% =========================================================================
+
+%% Interface implementation
+    Speaker <|.. TtsSpeaker
+
+%% Providers create / expose concrete instances
+    speakerProvider ..> TtsSpeaker : creates
+    speechProvider ..> SpeechNotifier : creates
+    favoritesProvider ..> FavoritesNotifier : creates
+    wordDetailProvider ..> GetWordEntry : invokes
+    wordListAssetProvider ..> WordListAsset : creates
+    getSuggestionsProvider ..> GetSuggestions : creates
+
+%% Provider-to-provider composition (ref.watch)
+    speechProvider ..> speakerProvider : ref.watch
+    getSuggestionsProvider ..> wordListAssetProvider : ref.watch
+
+%% Notifier dependencies (injected at construction)
+    SpeechNotifier o-- Speaker
+    FavoritesNotifier o-- GetAllFavorites
+    FavoritesNotifier o-- ToggleFavorite
+
+%% Usecase --> Repository / Datasource
+    GetWordEntry o-- WordRepository
+    GetSuggestions o-- WordListAsset
+    ToggleFavorite o-- FavoritesRepository
+    GetAllFavorites o-- FavoritesRepository
+
+%% Repository --> datasources (optional-ctor DI: default-constructed if not injected)
+    WordRepository o-- WordDb
+    WordRepository o-- DictionaryApi
+    WordRepository o-- DatamuseApi
+    WordRepository o-- TranslateApi
+    WordRepository o-- SentenceApi
+    WordRepository o-- ConnectivityUtil
+    FavoritesRepository o-- WordDb
+
+%% API return / raise
+    DictionaryApi ..> DictionaryResult : returns
+    DictionaryApi ..> DictionaryUnavailableException : throws
+    ConnectivityUtil ..> NoInternetException : throws
+
+%% Repositories -> models
+    WordRepository ..> WordEntryModel : returns
+    FavoritesRepository ..> WordEntryModel : returns

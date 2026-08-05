@@ -1,0 +1,190 @@
+sequenceDiagram
+%% Cold start of Word Depot through to the first successful API response.
+%% Traced against main.dart, app_router.dart, home_screen.dart,
+%% word_db.dart, word_repository.dart.
+%%
+%% Reading tips:
+%%   - Everything inside the "STARTUP BUDGET" rectangle is awaited before
+%%     runApp — pushing work in there delays the first frame.
+%%   - Everything inside the "FIRE-AND-FORGET" rectangle is kicked off from
+%%     HomeScreen.initState and races the user; if the first keystroke
+%%     arrives before WordListAsset.load resolves, the typeahead awaits it
+%%     inside getSuggestions.
+%%   - The app makes no HTTP call during bootstrap. Network failure can only
+%%     surface at the first word lookup — see the "no network" branch.
+    autonumber
+    actor User
+    participant main as main()
+    participant WFB as WidgetsFlutterBinding
+    participant WordDb
+    participant Sqflite as sqflite Database
+    participant PS as ProviderScope
+    participant App as EnglishBuddyApp
+    participant Router as appRouter (GoRouter)
+    participant Home as HomeScreen
+    participant Prefs as SharedPreferences
+    participant Asset as WordListAsset
+    participant Detail as WordDetailScreen
+    participant WDP as wordDetailProvider
+    participant WR as WordRepository
+    participant Conn as ConnectivityUtil
+    participant Dict as DictionaryApi
+    participant DM as DatamuseApi
+    participant TR as TranslateApi
+    participant Sent as SentenceApi
+
+    rect rgb(255, 244, 214)
+    Note over main,Sqflite: STARTUP BUDGET — everything below is awaited before runApp
+
+    User->>main: launch
+    activate main
+
+    main->>WFB: ensureInitialized()
+    activate WFB
+    WFB-->>main: bindings ready
+    deactivate WFB
+
+    main->>WordDb: WordDb().database  (await)
+    activate WordDb
+    WordDb->>Sqflite: getDatabasesPath()
+    activate Sqflite
+    Sqflite-->>WordDb: path
+    deactivate Sqflite
+    WordDb->>Sqflite: openDatabase(path, version: 1)
+    activate Sqflite
+    Note over Sqflite: onCreate runs on first install only —<br/>CREATE TABLE favorites<br/>CREATE TABLE word_cache<br/>(no migrations, version pinned at 1)
+    Sqflite-->>WordDb: Database
+    deactivate Sqflite
+    WordDb-->>main: Database (cached in _db)
+    deactivate WordDb
+
+    main->>PS: runApp(ProviderScope(...))
+    end
+
+    activate PS
+    PS->>App: build()
+    activate App
+    App->>Router: MaterialApp.router(routerConfig: appRouter)
+    Router->>Home: builder for "/" -> HomeScreen()
+    activate Home
+    Home->>Home: initState()
+
+    rect rgb(230, 244, 255)
+    Note over Home,Asset: FIRE-AND-FORGET — not awaited — races the first frame and the first keystroke
+
+    Home-)Prefs: _loadRecentSearches()  (async)
+    activate Prefs
+    Home-)Asset: ref.read(wordListAssetProvider).load()
+    activate Asset
+    Asset->>Asset: rootBundle.loadString('assets/data/words.json')
+    end
+
+    Home-->>User: FIRST FRAME (Scaffold + TypeAheadField + empty state)
+
+    Prefs--)Home: recentSearches[]
+    deactivate Prefs
+    Home->>Home: setState(_recentSearches)
+
+    Asset--)Asset: _words / _wordSet populated
+    deactivate Asset
+
+    deactivate Home
+    deactivate App
+    deactivate PS
+
+    Note over User,Sent: User interaction — first word lookup after cold start
+
+    User->>Home: types "apple"
+    Home->>Asset: ref.read(getSuggestionsProvider)("apple")
+    activate Asset
+    Note over Asset: getSuggestions awaits load() —<br/>if the asset was still loading, this is where the caller pays
+    Asset-->>Home: ["apple", "apples", ...]
+    deactivate Asset
+    Home-->>User: suggestions overlay
+
+    User->>Home: tap suggestion "apple"
+    Home->>Router: context.push('/word/apple')
+    Router->>Detail: WordDetailScreen(word: "apple")
+    activate Detail
+    Detail->>WDP: ref.watch(wordDetailProvider("apple"))
+    activate WDP
+    Note over WDP,WR: GetWordEntry is a passthrough — it default-constructs<br/>WordRepository and calls getWordEntry(word)
+    WDP->>WR: getWordEntry("apple")
+    activate WR
+
+    WR->>WordDb: getCachedWord("apple")
+    activate WordDb
+    WordDb->>Sqflite: SELECT * FROM word_cache WHERE word = ?
+    activate Sqflite
+    Sqflite-->>WordDb: row or empty
+    deactivate Sqflite
+    WordDb-->>WR: Map row  (null if empty or > 24h old)
+    deactivate WordDb
+
+    alt Cache hit (row present, cached_at within 24h)
+        WR->>WordDb: isFavorite("apple")
+        WordDb-->>WR: bool
+        WR-->>WDP: WordEntryModel (from cache)
+        Note over WR: phonetic / partOfSpeech / englishDefinition<br/>are NOT reconstructed — schema gap
+    else Cache miss — go to network
+        WR->>Conn: checkConnectivity()
+
+        alt Online
+            activate Conn
+            Conn-->>WR: returns normally
+            deactivate Conn
+
+            par Future.wait fan-out (all four run concurrently)
+                WR->>Dict: lookup("apple")
+                activate Dict
+                Note over Dict: 4 attempts, 300ms backoff.<br/>404 => null (no such word)
+                Dict-->>WR: DictionaryResult
+                deactivate Dict
+            and
+                WR->>DM: getSynonyms("apple")
+                activate DM
+                DM-->>WR: List of String  (empty on DioException)
+                deactivate DM
+            and
+                WR->>TR: translateToBangla("apple")
+                activate TR
+                TR-->>WR: String  ('' on DioException)
+                deactivate TR
+            and
+                WR->>Sent: getExampleSentences("apple")
+                activate Sent
+                Sent-->>WR: List of String  (empty on DioException)
+                deactivate Sent
+            end
+
+            WR->>WR: build WordEntryModel(found: dictResult != null)
+
+            opt found == true
+                WR->>WordDb: cacheWord(entry)
+                Note over WR,WordDb: misses stay OUT of cache —<br/>a 5xx would pin a real word as unknown for 24h
+            end
+
+            WR-->>WDP: WordEntryModel
+
+        else No network — the only bootstrap-time error path
+            activate Conn
+            Conn--xWR: throw NoInternetException
+            deactivate Conn
+            WR--xWDP: exception propagates
+            Note over WDP,Detail: FutureProvider surfaces AsyncError.<br/>Detail screen renders "No internet connection".<br/>App itself is fully alive — only this lookup failed.
+
+        else Dictionary unreachable after 4 retries
+            Note over Dict: A throw inside Future.wait blanks the whole entry
+            Dict--xWR: throw DictionaryUnavailableException
+            WR--xWDP: exception propagates
+            Note over WDP,Detail: Sentences etc. dropped even if the corpus responded —<br/>Detail screen shows the dictionary error.
+        end
+    end
+
+    deactivate WR
+    WDP-->>Detail: AsyncValue<WordEntryModel>
+    deactivate WDP
+    Detail-->>User: word entry rendered (phonetic, definitions, synonyms, sentences)
+    deactivate Detail
+
+    deactivate main
