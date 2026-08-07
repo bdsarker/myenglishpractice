@@ -99,6 +99,20 @@ needs a schema migration and a DB `version` bump (currently 1).
 alphabetical; `WordListAsset.getSuggestions` prefix-filters and takes the first N, so file order
 *is* the ranking. `test/data/word_list_asset_test.dart` asserts this.
 
+**The list is cut twice, and both cuts are needed.** 21,092 words: the top 30,000 by frequency,
+intersected with WordNet 3.1's lemma index. It was once the top 10,000 of a 20,000-word source,
+which left ordinary vocabulary (`arrogant`, `diligent`, `meticulous`) with no suggestions at all.
+
+A suggested word has to lead somewhere, and about one in ten of the words surviving the older
+filters had no definition, no synonyms and no example sentences in **any** of the four APIs —
+tapping one could only ever show an empty screen. Measured against the live APIs, that class is
+overwhelmingly abbreviations (`gld`, `dist`, `spp`) and proper nouns (`maris`, `findhorn`),
+which occur at every frequency rank, so **the rank cap alone measured worse than no cap at
+all**. WordNet is what removes them, because it indexes lemmas rather than tokens. Together the
+two cuts take the dead-end rate from ~11% to ~3%; either alone lands around 9-14%.
+`test/data/word_list_asset_test.dart` pins both directions — known-good words present, known
+dead ends absent.
+
 ### Speech (flutter_tts)
 
 `Speaker` in [speech_service.dart](lib/core/services/speech_service.dart) is an interface purely

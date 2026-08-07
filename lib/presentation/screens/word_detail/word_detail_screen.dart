@@ -51,7 +51,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
       appBar: AppBar(
         title: Text(word),
         actions: [
-          if (entry != null && entry.found) _FavoriteButton(entry: entry),
+          if (entry != null && entry.hasContent) _FavoriteButton(entry: entry),
         ],
       ),
       body: asyncEntry.when(
@@ -74,7 +74,7 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
             ),
           ),
         ),
-        data: (entry) => entry.found
+        data: (entry) => entry.hasContent
             ? _WordDetailBody(entry: entry)
             : _WordNotFound(word: entry.word),
       ),
@@ -82,8 +82,47 @@ class _WordDetailScreenState extends ConsumerState<WordDetailScreen> {
   }
 }
 
-/// Shown when the dictionary has no entry for the word — usually a typo, since
-/// the search box now opens whatever the user typed.
+/// Explains a body with no definition in it.
+///
+/// The dictionary has no entry for plenty of ordinary words — `norwegian` and
+/// `bangkok` among them — while the corpus covers them fine. Deliberately not
+/// styled as an error: nothing failed, and a retry would change nothing.
+class _PartialResultsNotice extends StatelessWidget {
+  const _PartialResultsNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline_rounded,
+                size: 18, color: AppTheme.inkFaint),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'No dictionary definition for this word. '
+                'Here is what we could find.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: AppTheme.inkFaint),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 300.ms);
+  }
+}
+
+/// Shown only when no source returned anything at all — no definition, no
+/// synonyms, no example sentences.
+///
+/// Reachable by tapping one of our own suggestions, not just by mistyping, so
+/// the copy leads with the dictionary's gap rather than blaming the spelling.
 class _WordNotFound extends StatelessWidget {
   final String word;
   const _WordNotFound({required this.word});
@@ -101,14 +140,21 @@ class _WordNotFound extends StatelessWidget {
             const Icon(Icons.search_off_rounded, size: 64, color: AppTheme.inkFaint),
             const SizedBox(height: 16),
             Text(
-              'No definition found for "$word"',
+              'Nothing found for "$word"',
               style: textTheme.titleMedium,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
-              'Check the spelling and try again.',
+              'This word is not in our dictionary, and no example '
+              'sentences turned up for it either.',
               style: textTheme.bodyMedium?.copyWith(color: AppTheme.inkFaint),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'If you typed it yourself, check the spelling.',
+              style: textTheme.bodySmall?.copyWith(color: AppTheme.inkFaint),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -137,6 +183,13 @@ class _WordDetailBody extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Says up front why the definition is missing, so the gap reads as a
+          // known limit of the dictionary rather than a half-loaded screen.
+          if (!entry.found) ...[
+            const _PartialResultsNotice(),
+            const SizedBox(height: 16),
+          ],
+
           // Title row
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

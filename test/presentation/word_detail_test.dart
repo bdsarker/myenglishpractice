@@ -357,4 +357,67 @@ void main() {
       expect(find.byIcon(Icons.star_rounded), findsNothing);
     });
   });
+
+  group('a word the dictionary has no entry for', () {
+    const notice =
+        'No dictionary definition for this word. Here is what we could find.';
+
+    /// The dictionary 404s on plenty of ordinary words that the corpus covers.
+    const partial = WordEntryModel(
+      word: 'norwegian',
+      found: false,
+      synonyms: ['norse'],
+      sentences: ['Are you Norwegians?'],
+      banglaDefinition: 'নরওয়িয়ান',
+    );
+
+    testWidgets('still renders what the other sources returned',
+        (tester) async {
+      await _pumpDetail(tester, partial);
+
+      expect(find.text('Nothing found for "norwegian"'), findsNothing);
+      expect(_inBody('Are you Norwegians?'), findsOneWidget);
+      expect(_inBody('norse'), findsOneWidget);
+      expect(_inBody('নরওয়িয়ান'), findsOneWidget);
+    });
+
+    testWidgets('says why there is no definition', (tester) async {
+      await _pumpDetail(tester, partial);
+
+      expect(find.text(notice), findsOneWidget);
+    });
+
+    testWidgets('can still be saved', (tester) async {
+      // There is something worth coming back to, so the star has work to do.
+      await _pumpDetail(tester, partial);
+
+      expect(find.byIcon(Icons.star_outline_rounded), findsOneWidget);
+    });
+
+    testWidgets('falls back to the empty state when nothing came back at all',
+        (tester) async {
+      // "arrowsmith": no definition, no synonyms, no sentences anywhere.
+      await _pumpDetail(
+        tester,
+        const WordEntryModel(word: 'arrowsmith', found: false),
+      );
+
+      expect(find.text('Nothing found for "arrowsmith"'), findsOneWidget);
+      expect(find.text(notice), findsNothing);
+    });
+
+    testWidgets('leaves a defined word completely alone', (tester) async {
+      await _pumpDetail(
+        tester,
+        WordEntryModel(
+          word: 'apple',
+          englishDefinition: 'A round fruit.',
+          sentences: _pool,
+        ),
+      );
+
+      expect(find.text(notice), findsNothing);
+      expect(_inBody('A round fruit.'), findsOneWidget);
+    });
+  });
 }

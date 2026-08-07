@@ -519,7 +519,7 @@ CREATE TABLE word_cache (
 
 **SharedPreferences.** One key: `recent_searches`, a `List<String>` capped at `AppConstants.recentSearchLimit` (10). Written by `_HomeScreenState._saveRecentSearch` at [`home_screen.dart:44`](../lib/presentation/screens/home/home_screen.dart#L44). No versioning, no schema.
 
-**Bundled asset — [`assets/data/words.json`](../assets/data/words.json).** A JSON array of English words, ordered by descending frequency. The order is load-bearing: `WordListAsset.getSuggestions` prefix-filters and takes the first N, so file order is the ranking. Regenerate with `dart run tool/generate_word_list.dart`; `test/data/word_list_asset_test.dart` asserts the ordering property.
+**Bundled asset — [`assets/data/words.json`](../assets/data/words.json).** A JSON array of 21,092 English words (~217 KB), ordered by descending frequency. The order is load-bearing: `WordListAsset.getSuggestions` prefix-filters and takes the first N, so file order is the ranking. The list is the top 30,000 by frequency intersected with WordNet 3.1's lemma index — the frequency cap alone leaves abbreviations and proper nouns that no API can define, and WordNet alone reaches too far down the tail. Regenerate with `dart run tool/generate_word_list.dart`; `test/data/word_list_asset_test.dart` asserts the ordering property, the size floor, and that known dead-end words stay out.
 
 ---
 

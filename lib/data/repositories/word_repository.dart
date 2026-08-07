@@ -61,8 +61,10 @@ class WordRepository {
     final corpusSentences = results[3] as List<String>;
     final isFav = await _db.isFavorite(word);
 
-    // No dictionary entry means the word does not exist, so drop the sentences
-    // too — a corpus match for a non-word is a coincidence, not an example.
+    // No dictionary entry does not mean the word is worthless — the dictionary
+    // misses ordinary words like "norwegian" that the corpus covers well. What
+    // it does mean is that nothing corroborates the spelling, so the sentences
+    // have to earn their place by actually containing the word.
     final found = dictResult != null;
 
     final entry = WordEntryModel(
@@ -74,7 +76,7 @@ class WordRepository {
       synonyms: synonyms,
       sentences: found
           ? _pool(corpusSentences, dictResult.examples)
-          : const [],
+          : _pool(_mentioning(word, corpusSentences), const []),
       isFavorite: isFav,
       found: found,
     );
@@ -86,6 +88,20 @@ class WordRepository {
       await _db.cacheWord(entry);
     }
     return entry;
+  }
+
+  /// The subset of [sentences] that actually contains [word].
+  ///
+  /// Only used when the dictionary has no entry. Tatoeba's search is fuzzy, not
+  /// exact — it answers "definately" with "Define evolution." — so without an
+  /// entry to corroborate the spelling, an unfiltered corpus hit is how a typo
+  /// ends up illustrated by a sentence about a different word entirely.
+  ///
+  /// Matched at a word boundary but without one at the end, so inflections
+  /// count: "norwegian" still matches "Are you Norwegians?".
+  List<String> _mentioning(String word, List<String> sentences) {
+    final mention = RegExp(r'\b' + RegExp.escape(word), caseSensitive: false);
+    return sentences.where(mention.hasMatch).toList();
   }
 
   /// The whole pool the detail screen shuffles through, corpus sentences first.

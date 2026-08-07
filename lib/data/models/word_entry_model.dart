@@ -13,6 +13,18 @@ class WordEntryModel {
   /// sentences or a translation as a definition in that case.
   final bool found;
 
+  /// True when there is something worth rendering: a dictionary entry, or
+  /// failing that, synonyms or example sentences that survived corroboration.
+  ///
+  /// The dictionary misses plenty of ordinary words — `norwegian` and `bangkok`
+  /// have no entry but ten corpus sentences each — and showing nothing at all
+  /// for those wastes what the other sources returned.
+  ///
+  /// Deliberately ignores [banglaDefinition]: MyMemory transliterates any token
+  /// it is handed ("arrowsmith" comes back as "তীরচিহ্ন"), so a Bangla string is
+  /// never evidence that the word is real.
+  bool get hasContent => found || synonyms.isNotEmpty || sentences.isNotEmpty;
+
   const WordEntryModel({
     required this.word,
     this.phonetic,

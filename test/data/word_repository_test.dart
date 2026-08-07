@@ -123,14 +123,71 @@ void main() {
     expect(cached.sentences, hasLength(AppConstants.sentencePoolLimit));
   });
 
-  test('marks a word not found and drops the example sentences', () async {
+  test('marks a word not found and drops sentences that never mention it',
+      () async {
     when(() => dictionary.lookup('asdfgh')).thenAnswer((_) async => null);
 
     final entry = await repository.getWordEntry('asdfgh');
 
     expect(entry.found, isFalse);
-    // A corpus hit on a word the dictionary cannot define is a coincidence.
+    // The fixture sentences are about apples. With no dictionary entry to
+    // corroborate the spelling, a corpus hit that does not contain the word is
+    // a coincidence, not an example.
     expect(entry.sentences, isEmpty);
+    expect(entry.hasContent, isFalse);
+  });
+
+  test('keeps sentences that do mention a word the dictionary has no entry for',
+      () async {
+    // Regression: the dictionary 404s on ordinary words — "norwegian",
+    // "bangkok", "thirtieth" — that the corpus covers with ten sentences each.
+    // Discarding those left the screen empty for a perfectly usable word.
+    when(() => dictionary.lookup('norwegian')).thenAnswer((_) async => null);
+    when(() => sentences.getExampleSentences('norwegian')).thenAnswer(
+      (_) async => const [
+        'Are you Norwegians?',
+        'He speaks Norwegian at home.',
+        'The train was late.',
+      ],
+    );
+
+    final entry = await repository.getWordEntry('norwegian');
+
+    expect(entry.found, isFalse);
+    // Inflections count, the unrelated sentence does not.
+    expect(entry.sentences, [
+      'Are you Norwegians?',
+      'He speaks Norwegian at home.',
+    ]);
+    // ...so the screen renders a body instead of the dead-end state.
+    expect(entry.hasContent, isTrue);
+  });
+
+  test('does not let a fuzzy corpus match illustrate a typo', () async {
+    // Tatoeba's search is stemmed, not exact: it answers "definately" with
+    // "Define evolution.". Rendering that as an example sentence for the typo
+    // is the failure this filter exists to prevent.
+    when(() => dictionary.lookup('definately')).thenAnswer((_) async => null);
+    when(() => sentences.getExampleSentences('definately'))
+        .thenAnswer((_) async => const ['Define evolution.', 'Define it.']);
+
+    final entry = await repository.getWordEntry('definately');
+
+    expect(entry.sentences, isEmpty);
+    expect(entry.hasContent, isFalse);
+  });
+
+  test('does not cache a partial entry', () async {
+    // Same reasoning as a plain miss: the dictionary may simply have been down,
+    // and a definition-less version must not be pinned for 24 hours.
+    when(() => dictionary.lookup('norwegian')).thenAnswer((_) async => null);
+    when(() => sentences.getExampleSentences('norwegian'))
+        .thenAnswer((_) async => const ['Are you Norwegians?']);
+
+    final entry = await repository.getWordEntry('norwegian');
+
+    expect(entry.hasContent, isTrue);
+    verifyNever(() => db.cacheWord(any()));
   });
 
   test('does not cache a miss, so a transient failure is retried', () async {

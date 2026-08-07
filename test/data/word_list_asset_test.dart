@@ -127,7 +127,9 @@ void main() {
       final raw = await rootBundle.loadString(WordListAsset.assetKey);
       final words = (jsonDecode(raw) as List<dynamic>).cast<String>();
 
-      expect(words.length, greaterThanOrEqualTo(9000));
+      // A floor, not the exact count — but high enough that a regeneration
+      // which silently drops a source fails here.
+      expect(words.length, greaterThanOrEqualTo(20000));
       expect(words.toSet(), hasLength(words.length), reason: 'no duplicates');
       expect(
         words.every(RegExp(r'^[a-z]+$').hasMatch),
@@ -148,6 +150,44 @@ void main() {
       expect(await asset.getSuggestions('an'), contains('another'));
       expect(await asset.getSuggestions('anoth'), ['another']);
       expect(await asset.getSuggestions('appl'), contains('apple'));
+    });
+
+    test('suggests mid-frequency vocabulary, not just the most common words',
+        () async {
+      // While the asset was the top 10,000 of a 20k source these produced no
+      // suggestions at all.
+      final asset = WordListAsset();
+
+      for (final word in [
+        'arrogant', 'arrogance', 'diligent', 'pragmatic', //
+        'verbose', 'meticulous', 'eloquent',
+      ]) {
+        expect(
+          await asset.getSuggestions(word),
+          contains(word),
+          reason: '"$word" should be suggested',
+        );
+      }
+    });
+
+    test('does not suggest words that lead nowhere', () async {
+      // Regression: tapping a suggestion has to show something. None of these
+      // has a definition, a synonym or an example sentence in any of the four
+      // sources, so suggesting them can only produce an empty screen.
+      // Abbreviations and proper nouns are the bulk of that class, which is
+      // what the WordNet intersection in tool/generate_word_list.dart removes.
+      final asset = WordListAsset();
+
+      for (final word in [
+        'arrowsmith', 'gld', 'spp', 'maris', //
+        'findhorn', 'oligochaeta', 'mastopexy', 'inkster',
+      ]) {
+        expect(
+          await asset.getSuggestions(word),
+          isNot(contains(word)),
+          reason: '"$word" has no content anywhere and should not be offered',
+        );
+      }
     });
   });
 }
